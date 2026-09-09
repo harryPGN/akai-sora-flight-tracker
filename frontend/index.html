@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AKAI SORA · 紅空 — Real-Time Flight Tracker</title>
+  <meta name="description" content="AKAI SORA — a real-time flight tracker with deep engineering specs and special-livery alerts, built on the OpenSky Network." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230b0b0d'/%3E%3Cpath d='M16 5l3 9 9 3-9 3-3 9-3-9-9-3 9-3z' fill='%23e11d2a'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Shippori+Mincho+B1:wght@500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="static/css/style.css" />
+</head>
+<body>
+  <!-- Seigaiha (wave) pattern background -->
+  <div class="bg-pattern" aria-hidden="true"></div>
+
+  <!-- LEFT NAVIGATION -->
+  <nav class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="34" height="34"><path d="M16 3l3.4 9.2 9.2 3.4-9.2 3.4L16 28.6 12.6 19.4 3.4 16l9.2-3.4z" fill="currentColor"/></svg>
+      </span>
+      <div class="brand-text">
+        <strong>AKAI SORA</strong>
+        <span>紅空 · FLIGHT TRACKER</span>
+      </div>
+    </div>
+    <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">≡</button>
+    <ul class="nav-list" role="tablist">
+      <li><a class="nav-link active" data-view="home" role="tab">Home <span>ホーム</span></a></li>
+      <li><a class="nav-link" data-view="map" role="tab">Flight Tracking Map <span>追跡地図</span></a></li>
+      <li><a class="nav-link" data-view="livery" role="tab">Special Livery Tracker <span>特別塗装機</span></a></li>
+      <li><a class="nav-link" data-view="database" role="tab">Aircraft Databases <span>機体データ</span></a></li>
+      <li><a class="nav-link" data-view="about" role="tab">About me &amp; Contact <span>概要・連絡</span></a></li>
+    </ul>
+    <div class="nav-footer">
+      <span class="status-dot" id="apiStatus">●</span>
+      <span id="apiStatusText">connecting…</span>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main">
+    <!-- HOME -->
+    <section class="view active" id="view-home">
+      <header class="hero">
+        <div class="hero-kanji">紅空</div>
+        <div>
+          <h1 class="hero-title">AKAI SORA</h1>
+          <p class="hero-sub">A real-time flight tracker that goes beyond Flightradar24 &amp; FlightAware — deeper engineering specs, special-livery alerts, and storm-aware routing.</p>
+          <p class="hero-credit">Built by an Aviation &amp; Aeronautical Engineering student · Powered by the OpenSky Network</p>
+        </div>
+      </header>
+
+      <div class="widget-grid">
+        <div class="card stat-card">
+          <span class="stat-label">Live aircraft in view</span>
+          <span class="stat-value" id="statFlights">—</span>
+          <span class="stat-foot" id="statFlightsSource">loading…</span>
+        </div>
+        <div class="card stat-card">
+          <span class="stat-label">Special liveries tracked</span>
+          <span class="stat-value" id="statLiveries">—</span>
+          <span class="stat-foot">curated database</span>
+        </div>
+        <div class="card stat-card">
+          <span class="stat-label">Aircraft types in DB</span>
+          <span class="stat-value" id="statTypes">—</span>
+          <span class="stat-foot">engineering specs</span>
+        </div>
+        <div class="card stat-card">
+          <span class="stat-label">Data source</span>
+          <span class="stat-value small" id="statSource">—</span>
+          <span class="stat-foot" id="statUpdated">—</span>
+        </div>
+      </div>
+
+      <div class="home-row">
+        <div class="card panel">
+          <h2 class="panel-title">Airport Disruption Index</h2>
+          <p class="muted">Experimental 0–100 index from live METAR (wind, visibility, ceiling, flight category).</p>
+          <div class="airport-form">
+            <input id="disrAirport" list="airportList" value="VHHH" placeholder="ICAO e.g. VHHH" maxlength="4" />
+            <button id="disrBtn">Analyze</button>
+          </div>
+          <div class="disruption-result" id="disruptionResult"></div>
+        </div>
+
+        <div class="card panel">
+          <h2 class="panel-title">Airport Weather (METAR)</h2>
+          <div class="airport-form">
+            <input id="wxAirport" list="airportList" value="RJTT" placeholder="ICAO e.g. RJTT" maxlength="4" />
+            <button id="wxBtn">Get Weather</button>
+          </div>
+          <div class="weather-result" id="weatherResult"></div>
+        </div>
+      </div>
+
+      <div class="card panel">
+        <h2 class="panel-title">Aviation News</h2>
+        <ul class="news-list" id="newsList"></ul>
+      </div>
+
+      <datalist id="airportList">
+        <option value="VHHH">Hong Kong Intl</option>
+        <option value="RJTT">Tokyo Haneda</option>
+        <option value="RJAA">Tokyo Narita</option>
+        <option value="RCTP">Taipei Taoyuan</option>
+        <option value="WSSS">Singapore Changi</option>
+        <option value="ZBAA">Beijing Capital</option>
+        <option value="ZSPD">Shanghai Pudong</option>
+        <option value="KLAX">Los Angeles</option>
+        <option value="EGLL">London Heathrow</option>
+        <option value="OMDB">Dubai Intl</option>
+      </datalist>
+    </section>
+
+    <!-- FLIGHT MAP -->
+    <section class="view" id="view-map">
+      <div class="map-wrap">
+        <div id="flightMap"></div>
+        <aside class="detail-panel" id="detailPanel">
+          <div class="detail-empty">Select an aircraft on the map to view in-depth engineering details.</div>
+        </aside>
+      </div>
+      <div class="map-controls">
+        <span class="badge" id="mapStatus">Loading…</span>
+        <label class="toggle"><input type="checkbox" id="followLivery" checked> Highlight special liveries</label>
+        <label class="toggle"><input type="checkbox" id="dimGround" checked> Dim on-ground aircraft</label>
+        <span class="muted small">Polling 8s · 4s timeout · 30s back-off</span>
+      </div>
+    </section>
+
+    <!-- LIVERY -->
+    <section class="view" id="view-livery">
+      <div class="livery-layout">
+        <div class="card livery-list-card">
+          <h2 class="panel-title">Special Livery Fleet</h2>
+          <input class="search" id="liverySearch" placeholder="Search airline, livery, registration…" />
+          <ul class="livery-list" id="liveryList"></ul>
+        </div>
+        <div class="card livery-detail-card" id="liveryDetail">
+          <div class="detail-empty">Select a livery to view its photo, specs and live status.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DATABASE -->
+    <section class="view" id="view-database">
+      <div class="card db-card">
+        <h2 class="panel-title">Aircraft Engineering Database</h2>
+        <input class="search" id="dbSearch" placeholder="Search model, manufacturer, type code…" />
+        <div class="db-table-wrap">
+          <table class="db-table" id="dbTable">
+            <thead><tr>
+              <th>Type</th><th>Model</th><th>Category</th><th>Engines</th><th>Thrust (kN)</th>
+              <th>Length (m)</th><th>Wingspan (m)</th><th>MTOW (t)</th><th>Range (km)</th><th>Cruise (km/h)</th><th>Ceiling (m)</th><th>Pax</th>
+            </tr></thead>
+            <tbody id="dbBody"></tbody>
+          </table>
+        </div>
+        <div class="db-detail" id="dbDetail"></div>
+      </div>
+    </section>
+
+    <!-- ABOUT -->
+    <section class="view" id="view-about">
+      <div class="card about-card">
+        <h2 class="panel-title">About AKAI SORA</h2>
+        <p>AKAI SORA (紅空, “red sky”) is a self-built, real-time flight tracker created by an Aviation &amp; Aeronautical Engineering student in Hong Kong. The project aims to demonstrate live data engineering, GIS visualization, and aerospace domain knowledge — and to stand out on LinkedIn as a portfolio piece.</p>
+        <h3 class="about-h">Beyond Flightradar24 / FlightAware</h3>
+        <ul class="feature-list">
+          <li>Deep engineering specs per aircraft type (engines, thrust, MTOW, range, ceiling, Mach).</li>
+          <li>Special-livery tracking with photo display (Pokémon jets, batik, themed liveries).</li>
+          <li>Airport disruption index computed live from METAR.</li>
+          <li>Transparent data-source status (live OpenSky vs. cached vs. demo fallback).</li>
+        </ul>
+        <h3 class="about-h">Tech Stack</h3>
+        <p>Python (FastAPI) backend · Vanilla HTML/CSS/JS + Leaflet frontend · OpenSky Network live states · NOAA AviationWeather METAR · Wikimedia Commons imagery.</p>
+        <h3 class="about-h">Roadmap (Future Development)</h3>
+        <ul class="feature-list">
+          <li>Live weather radar overlay on the tracking map.</li>
+          <li>Typhoon warning system — alert for any flight path intersecting a typhoon’s forecast cone.</li>
+          <li>Historical replay and flight playback.</li>
+        </ul>
+        <h3 class="about-h">Contact</h3>
+        <p class="contact">Lee Harry · Hong Kong · <a href="mailto:harryleewh@gmail.com">harryleewh@gmail.com</a></p>
+        <p class="muted small">Data sources: OpenSky Network (live states), NOAA AviationWeather (METAR), Wikimedia Commons (livery imagery). For educational use.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="static/js/app.js"></script>
+</body>
+</html>
