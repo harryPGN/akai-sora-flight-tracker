@@ -42,24 +42,46 @@ def spec_for(typecode: str | None) -> dict | None:
     return SPECS.get(typecode.upper())
 
 
-# Map OpenSky aircraft "type" categories to a simple symbol family used by the
-# frontend marker. OpenSky does not expose the ICAO type code, so we fall back
-# to a category inferred from the OpenSky `category` field when present.
+# Map an aircraft type code to a marker symbol family used by the frontend.
+# OpenSky's states/all endpoint does not expose the type code, so for arbitrary
+# traffic we can only default to a generic jet; for liveries (where we know the
+# type) and demo data we map the type code to the right silhouette.
+_WIDEBODY = ("77", "78", "76", "74", "75", "33", "35", "34", "38", "31")  # 777/787/767/747/757/A330/A350/A340/A380/A310
+_REGIONAL_TP = ("AT", "DH", "SF", "E", "Q", "DHC")  # turboprop / regional
+
 def symbol_family(category: int | None, typecode: str | None) -> str:
-    if typecode:
-        tc = typecode.upper()
-        if tc.startswith(("EC", "AS", "H", "UH", "S", "B")):
-            pass
-    # OpenSky category codes (approximate): 1-3 light/medium, 4 large, 5-6 heavy,
-    # 7 high perf, 8 rotorcraft, 9-10 glider/light, 11-19 ultralight.
-    if category in (8,):
+    tc = (typecode or "").upper()
+    if tc:
+        # Airbus widebodies (A300/A310/A330/A340/A350/A380) vs narrow-body (A318-A321)
+        if tc.startswith("A3"):
+            if tc[2:3] in ("0", "1", "3", "4", "5", "8"):
+                return "heavy"
+            return "medium"
+        # Boeing: ICAO designators like 77W, B789, B763, 738 — match first two digits
+        is_boeing = (tc.startswith("7") and len(tc) >= 2 and tc[1].isdigit()) or \
+                    (tc.startswith("B7") and len(tc) >= 3 and tc[2].isdigit())
+        if is_boeing:
+            fam = tc[1:3] if tc.startswith("B7") else tc[:2]  # 73,74,75,76,77,78
+            if fam in ("74", "76", "77", "78"):
+                return "heavy"
+            return "medium"
+        # turboprop / regional
+        if tc.startswith(("AT", "DH", "SF", "DHC")) or tc in ("AT7", "AT72", "DH8", "DHC8", "SF34"):
+            return "turboprop"
+        # rotorcraft
+        if tc.startswith(("EC", "AS", "UH", "B06", "S76", "AW")) or tc.startswith("H"):
+            return "rotorcraft"
+        # light / general
+        if tc.startswith(("BE", "C5", "C7", "PC", "M2", "LJ", "F9", "GL")):
+            return "light"
+        return "medium"            # narrow-body jet fallback
+    # fall back to OpenSky category codes if a caller has them
+    if category == 8:
         return "rotorcraft"
     if category in (9, 10):
         return "light"
-    if category in (1, 2, 3):
-        return "medium"
-    if category in (4,):
-        return "large"
     if category in (5, 6, 7):
         return "heavy"
+    if category == 4:
+        return "large"
     return "medium"

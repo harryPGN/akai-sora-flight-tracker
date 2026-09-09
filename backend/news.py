@@ -17,6 +17,18 @@ FEEDS = [
     "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
 ]
 
+AVIATION_KEYWORDS = (
+    "flight", "flights", "airline", "airlines", "aircraft", "airplane", "plane",
+    "boeing", "airbus", "embraer", "airport", "aviation", "aero", "jet",
+    "carrier", "livery", "runway", "atc", "airspace", "pilot", "crew",
+    "cockpit", "turbulence", "metar", "notam", "icao", "iata", "ads-b",
+    "boeing 7", "airbus a", "dreamliner", "737", "777", "787", "a350", "a380",
+)
+
+def _is_aviation(title: str, summary: str) -> bool:
+    txt = f"{title} {summary}".lower()
+    return any(k in txt for k in AVIATION_KEYWORDS)
+
 FALLBACK = [
     {
         "title": "China Airlines debuts Pikachu Jet CI2 on A350",
@@ -91,6 +103,8 @@ def get_news() -> list[dict]:
     if not items:
         items = FALLBACK
     else:
-        items = items[:12]
+        # keep only aviation-relevant headlines; fall back to curated if none match
+        filtered = [it for it in items if _is_aviation(it.get("title",""), it.get("summary",""))]
+        items = filtered[:12] if filtered else FALLBACK
     _cache = (now, items)
     return items

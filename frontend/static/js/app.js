@@ -21,7 +21,8 @@ const ft = (m) => (m==null?null:Math.round(m*3.28084));
 /* ---------- aircraft SVG silhouettes ---------- */
 const SVG = {
   jet: '<path d="M12 1.5l1.6 6.4 7.9 3.2-7.9 1.6L12 22.5l-1.6-9.8L2.5 11.1l7.9-3.2z"/>',
-  heavy: '<path d="M12 2l1.4 5.6 6.6 2.6-6.6 1.4L12 22l-1.4-10.4L4 10.2l6.6-2.6z"/>',
+  large: '<path d="M12 2l1.4 5.6 6.6 2.6-6.6 1.4L12 22l-1.4-10.4L4 10.2l6.6-2.6z"/>',
+  heavy: '<path d="M12 1.5l1.6 6.4 7.9 3.2-7.9 1.6L12 22.5l-1.6-9.8L2.5 11.1l7.9-3.2z"/>',
   turboprop: '<path d="M12 3l1.2 4.6 4.4 1.8-4.4 1L12 21l-1.2-10.6L6.4 9.4l4.4-1.8z"/><circle cx="12" cy="12" r="1.4"/>',
   rotorcraft: '<path d="M3 11h18M12 5v14"/><circle cx="12" cy="11" r="2.4"/>',
   light: '<path d="M12 4l1 4 4 1.5-4 1L12 20l-1-9.5L7 9.5l4-1.5z"/>',
@@ -290,13 +291,19 @@ function renderLiveryList(){
     el.addEventListener("click",()=>showLivery(el.dataset.icao));
   });
 }
-function showLivery(icao){
+async function showLivery(icao){
   const l = LIVERIES.find(x=>x.icao24.toLowerCase()===icao);
   if(!l) return;
   $$("#liveryList .livery-item").forEach(e=>e.classList.toggle("sel",e.dataset.icao===icao));
-  const flying = liverySet.has(icao);
-  const f = flying ? flights.find(x=>x.icao24===icao) : null;
   const spec = SPECS.find(s=>s.typecode===(l.typecode||"").toUpperCase());
+
+  // fetch live status (flying / on_ground / landed_or_off / unknown)
+  let st = {status:"unknown"};
+  try{ st = await fetch(`${API}/api/livery-status?icao24=${encodeURIComponent(icao)}`).then(r=>r.json()); }catch(e){}
+  const flying = st.status==="flying";
+  const onGround = st.status==="on_ground";
+  const f = st.flight || null;
+  const ap = st.nearestAirport || null;
   $("#liveryDetail").innerHTML = `
     ${l.photoUrl?`<img class="livery-photo" src="${l.photoUrl}" alt="${l.liveryName}"><div class="photo-credit">Photo: Wikimedia Commons · ${l.registration}</div>`:"<div class='detail-empty'>No photo available</div>"}
     <div class="detail-head">
@@ -311,12 +318,24 @@ function showLivery(icao){
     <div class="detail-row"><span>Country</span><span>${l.country}</span></div>
     <div class="detail-row"><span>Theme</span><span>${l.theme}</span></div>
     <div class="detail-section">Live Status</div>
-    <div class="detail-row"><span>Tracking</span><span>${flying?"In flight now":"Not currently transmitting"}</span></div>
-    ${f?`<div class="detail-row"><span>Ground speed</span><span>${fmt(kmh(f.velocity))} km/h</span></div>
+    ${flying?`
+    <div class="detail-row"><span>Tracking</span><span>★ In flight now</span></div>
+    <div class="detail-row"><span>Ground speed</span><span>${fmt(kmh(f.velocity))} km/h</span></div>
     <div class="detail-row"><span>Altitude</span><span>${fmt(f.baroAltitude)} m</span></div>
     <div class="detail-row"><span>Heading</span><span>${fmt(f.trueTrack,0)}°</span></div>
-    <div class="detail-row"><span>Last contact</span><span>${new Date(f.lastContact*1000).toLocaleTimeString()}</span></div>`
-    :`<div class="detail-row"><span>ADS-B</span><span>Off — last known position unavailable</span></div>`}
+    <div class="detail-row"><span>Last contact</span><span>${new Date(f.lastContact*1000).toLocaleTimeString()}</span></div>
+    ${ap?`<div class="detail-row"><span>Nearest airport</span><span>${ap.iata} ${ap.name}</span></div>`:""}`
+    :onGround?`
+    <div class="detail-row"><span>Tracking</span><span>On the ground</span></div>
+    ${ap?`<div class="detail-row"><span>Located at</span><span>${ap.iata} ${ap.name}</span></div>`:""}`
+    :st.status==="landed_or_off"?`
+    <div class="detail-row"><span>Tracking</span><span>ADS-B off — last known path shown</span></div>
+    <div class="detail-row"><span>Last seen</span><span>${st.lastSeen?new Date(st.lastSeen*1000).toLocaleString():"—"}</span></div>
+    <div class="detail-row"><span>Last positions</span><span>${(st.lastPath||[]).length} points</span></div>
+    ${ap?`<div class="detail-row"><span>Last near</span><span>${ap.iata} ${ap.name} (${ap.distanceKm} km)</span></div>`:""}`
+    :`
+    <div class="detail-row"><span>Tracking</span><span>Not currently transmitting</span></div>
+    <div class="detail-row"><span>ADS-B</span><span>${st.note||"No recent position available"}</span></div>`}
     ${spec?`<div class="detail-section">Engineering Spec</div>
     <div class="detail-row"><span>Engines</span><span>${spec.engines}</span></div>
     <div class="detail-row"><span>MTOW</span><span>${(spec.mtowKg/1000).toFixed(1)} t</span></div>
@@ -324,10 +343,20 @@ function showLivery(icao){
     <div class="detail-section">About</div>
     <div class="detail-row"><span style="max-width:280px">${l.description}</span></div>
   `;
-  // if flying, fly map to it
-  if(flying && map){
-    switchView("map");
-    setTimeout(()=>{ map.flyTo([f.latitude,f.longitude],7,{duration:1.2}); selectAircraft(icao); },200);
+  // if flying, fly map to it; if landed/off, draw the last pathway on the map
+  if(map){
+    if((flying||onGround) && f){
+      switchView("map");
+      setTimeout(()=>{ map.flyTo([f.latitude,f.longitude],onGround?9:7,{duration:1.2}); if(flying) selectAircraft(icao); },200);
+    } else if(st.status==="landed_or_off" && st.lastPath && st.lastPath.length){
+      switchView("map");
+      layerPredicted.clearLayers();
+      const pts = st.lastPath.map(p=>[p.lat,p.lon]);
+      L.polyline(pts,{color:"#f5c542",weight:2,opacity:.85}).addTo(layerPredicted);
+      const last = pts[pts.length-1];
+      L.circleMarker(last,{radius:5,color:"#f5c542"}).addTo(layerPredicted);
+      setTimeout(()=>{ map.flyTo(last,6,{duration:1.2}); },200);
+    }
   }
 }
 

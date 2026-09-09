@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from . import data as D
+from . import airports as AP
 
 OPENSKY_URL = "https://opensky-network.org/api/states/all"
 TIMEOUT = 4.0          # 4s timeout per the spec
@@ -41,6 +42,47 @@ IDX = {
 
 _last_failure = 0.0
 _last_good: list[dict] | None = None
+
+# rolling per-aircraft position history (for 'landed / ADS-B off' last pathway).
+# only tracked for known special liveries to bound memory.
+_history: dict[str, list[dict]] = {}
+HISTORY_MAX = 120  # ~16 minutes at 8s polling
+
+
+def _record_history(flights: list[dict]):
+    now = int(time.time())
+    for f in flights:
+        icao = f.get("icao24")
+        lat, lon = f.get("latitude"), f.get("longitude")
+        if not icao or lat is None or lon is None:
+            continue
+        if icao not in D.LIVERY_BY_ICAO:
+            continue
+        path = _history.setdefault(icao, [])
+        path.append({"lat": lat, "lon": lon, "ts": now, "alt": f.get("baroAltitude"), "gs": f.get("velocity"), "trk": f.get("trueTrack")})
+        if len(path) > HISTORY_MAX:
+            path.pop(0)
+
+
+def livery_status(icao24: str) -> dict:
+    """Status of a special-livery aircraft: flying now, or last known path + nearest airport."""
+    icao = icao24.lower()
+    pool = _last_good or _demo_flights()
+    current = next((f for f in pool if f["icao24"] == icao), None)
+    has_pos = bool(current and current.get("latitude") is not None)
+    if has_pos:
+        ap = AP.nearest(current["latitude"], current["longitude"])
+        if current.get("onGround"):
+            return {"icao24": icao, "status": "on_ground", "flight": current, "nearestAirport": ap}
+        return {"icao24": icao, "status": "flying", "flight": current, "nearestAirport": ap}
+    path = _history.get(icao, [])
+    if path:
+        last = path[-1]
+        ap = AP.nearest(last["lat"], last["lon"])
+        return {"icao24": icao, "status": "landed_or_off",
+                "lastPath": path, "lastSeen": last["ts"], "nearestAirport": ap}
+    return {"icao24": icao, "status": "unknown",
+            "note": "Not yet observed transmitting on OpenSky in this session."}
 
 
 @dataclass
@@ -177,6 +219,7 @@ def fetch_flights(bbox: BBox | None) -> dict:
                 flights.append(f)
             _last_good = flights
             cached_at = int(payload.get("time") or now)
+            _record_history(flights)
         except Exception:
             _last_failure = now
             flights = _last_good or _demo_flights()

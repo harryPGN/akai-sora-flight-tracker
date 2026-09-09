@@ -92,6 +92,11 @@ def news():
     return NEWS.get_news()
 
 
+@app.get("/api/livery-status")
+def livery_status(icao24: str):
+    return OS.livery_status(icao24)
+
+
 @app.get("/api/predict")
 def predict(icao24: str, minutes: float = 10.0):
     """Predicted path for the most recent known position of an aircraft.
